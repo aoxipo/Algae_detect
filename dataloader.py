@@ -125,12 +125,12 @@ class Dataload(Dataset):
                         x = line.replace('\n', '').split(' ')
                         x = [float(i) for i in x]
                         label.append(x)
-                label = torch.tensor(label)
                 l, m = label.shape
                 if(self.same_matrix):
                     # print("取矩阵大小相同")
                     # 训练集最大的向量为20
-                    ones = -1 * np.ones([25, 5])
+                    ones = np.zeros([25, 5])
+                    ones[:,0] = 8
                     ones[:l,:] =label
                     label = ones
                 # print(ones)
@@ -138,7 +138,7 @@ class Dataload(Dataset):
                     # print("取矩阵大小不同")
                     pass
 
-
+            label = torch.tensor(label)
             if self.datagen is not None:
                 image = self.datagen(image)
 
