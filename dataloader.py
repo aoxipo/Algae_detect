@@ -115,7 +115,6 @@ class Dataload(Dataset):
         try:
             a = index +430
             if(len(self.photo_set)>0):
-
                 image = self.read_image_data( self.photo_set[a][0] ,self.gray)
                 # print(image)
                 label = []
@@ -125,7 +124,7 @@ class Dataload(Dataset):
                         x = line.replace('\n', '').split(' ')
                         x = [float(i) for i in x]
                         label.append(x)
-                l, m = label.shape
+                l = len(label)
                 if(self.same_matrix):
                     # print("取矩阵大小相同")
                     # 训练集最大的向量为20
