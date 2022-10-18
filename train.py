@@ -1,14 +1,7 @@
 from dataloader import Dataload
 from torch.utils.data import DataLoader
-#from model.Tvit import ViT as Model
-#from torchvision.models import resnet50
-#from model.Ceffici import crop_model
-#from model.efficientnet_pytorch.utils import get_blocks_args_global_params_b4,get_blocks_args_global_params_b6
-# from model.DesNet import crop_model
-#from model.distill import DistillableViT, DistillWrapper
 from torch.autograd import Variable
 from torchsummary import summary
-import tensorboard
 import os
 import torch
 import numpy as np
