@@ -58,7 +58,7 @@ class Train():
         # self.model = crop_model(a,b,self.in_channels)
 
         from model.DesNet import DenseCoord as Model
-        self.model = Model(in_channel=1, num_classes=self.out_channels)
+        self.model = Model(in_channel=self.in_channels, num_classes=self.out_channels)
         self.name = "dense121"
        
         # self.model = Model(
@@ -72,11 +72,14 @@ class Train():
         #     channels = self.in_channels,
         # )
 
-        self.cost = torch.nn.CrossEntropyLoss()
+        self.costCross = torch.nn.CrossEntropyLoss()
+        self.costLTwo = torch.nn.MSELoss()
         # self.cost = torch.nn.MSELoss()
         if(use_gpu):
+            torch.cuda.manual_seed(3407)
             self.model = self.model.cuda()
-            self.cost = self.cost.cuda()
+            self.costCross = torch.nn.CrossEntropyLoss().cuda()
+            self.costLTwo = torch.nn.MSELoss().cuda()
         if(is_show):
             summary(self.model, ( self.in_channels, self.image_size, self.image_size ))
         
@@ -86,7 +89,7 @@ class Train():
             start_time =datetime.datetime.now()
             print("Epoch {}/{}".format(epoch, n_epochs))
             print("-" * 10)
-            epoch_train_acc, epoch_train_loss = self.train(data_loader_train)
+            epoch_train_acc, epoch_train_loss = self.train(n_epochs,data_loader_train)
             epoch_test_acc, epoch_test_loss = self.test(data_loader_test)
 
             self.history_acc.append(epoch_train_acc)
@@ -112,6 +115,7 @@ class Train():
         testing_correct = 0
         running_loss =0
         running_test_loss = 0
+        epoch_loss = 0
         test_index = 0
         with torch.no_grad():
             for data in data_loader_test:
@@ -126,23 +130,23 @@ class Train():
                 if(use_gpu):
                     X_test = X_test.to(device)
                     y_test = y_test.to(device)
-                #outputs = self.model(X_test, y_test_F)
-                #X_test = self.crop_tensor(X_test,3)
+                # outputs = self.model(X_test, y_test_F)
+                # X_test = self.crop_tensor(X_test,3)
                 outputs = self.model(X_test)
-                #loss = self.cost(outputs, y_test)
                 #loss = 0
 
-                loss = self.cost(outputs["pred_logits"].double(), y_test.double())
+                loss = self.costCross(outputs["pred_logits"].double(), y_test.double())
 
                 running_loss += loss.data.item()
-                _,pred = torch.max(outputs["pred_logits"].data, 1)
-                ans1 =  [ 1 if y_test[index] == pred[index] else 0 for index in range(pred.size()[0])]
-                running_test_loss += loss.data.item()
+                # _,pred = torch.max(outputs["pred_logits"].data, 1)
+                # ans1 =  [ 1 if y_test[index] == pred[index] else 0 for index in range(pred.size()[0])]
+                # running_test_loss += loss.data.item()
                 #ans =  [ 1 if y_test_flatten[index] == pred_flatten[index] else 0 for index in range(pred_flatten.size()[0])]
-                testing_correct += np.sum(ans1)  / len(ans1)
+                # testing_correct += np.sum(ans1)  / len(ans1)
                 test_index += 1
                 epoch_loss = running_loss/test_index
-        #print( running_correct,  test_index)
+                print("running_loss: {}  " .format(running_loss))
+            # print("running_loss: {} epoch_loss{} " .format(running_loss,  epoch_loss))
 
 
 
@@ -150,7 +154,7 @@ class Train():
         self.model.train()
         self.model.cuda(0)
         best_acc = 0
-        running_loss = 0.0
+
         running_correct = 0
         # print(data_loader_train[0])
         train_index = 0
@@ -158,6 +162,7 @@ class Train():
             print("开始第{}轮训练 GPU：{} ".format(i,use_gpu))
             print(len(data_loader_train))
             for data in data_loader_train:
+                running_loss = 0.0
                 # print("数据为{}".format(data))
                 X_train, y_train  = data
                 # print("x: {} y :{}".format(X_train.shape,y_train.shape))
@@ -173,23 +178,27 @@ class Train():
                 self.optimizer.zero_grad()
                 # print("运行到这里 {}".format(X_train.size()))
                 outputs  = self.model(X_train)
+                # print(outputs.shape)
+                # print("OUTPUT")
                 # print(outputs)
                 # print(outputs["pred_logits"].shape)
                 # print(y_train.shape)
-                loss = self.cost(outputs["pred_logits"].double(), y_train.double())
+                lossClass = self.costCross(outputs["pred_logits"][:,:,0].double(), y_train[:,:,0].double())
+                lossCoord = self.costLTwo(outputs["pred_logits"][:,:,1:].double(), y_train[:,:,1:].double())
+                loss = lossClass + lossCoord
                 loss.backward()
                 self.optimizer.step()
 
                 running_loss += loss.data.item()
 
-                _,pred = torch.max(outputs["pred_logits"].data, 1)
-                print("pred {}".format(pred))
+                # _,pred = torch.max(outputs["pred_logits"].data, 1)
+                # print("pred {}".format(pred))
                 # ans1 =  [ 1 if y_train[index] == pred[index] else 0 for index in range(pred.size()[0])]
 
                 # running_correct += np.sum(ans1) / len(ans1)
                 train_index += 1
                 # print("ans {}" .format(ans1))
-                print("train_index {}" .format(train_index))
+                print("train_index {} running_loss {}" .format(train_index,running_loss))
 
         self.save_parameter("./save_best/", "best")
 
@@ -266,26 +275,45 @@ class Train():
     def load_parameter(self, file_path = './save/' ):
         self.model.load_state_dict(torch.load(file_path))
         # self.model.load_state_dict(torch.load('model_parameter.pkl'))
+
+
 if __name__ == "__main__":
 
     batch_size = 128
     image_size = 128
     data_path= r"E:\Dataset\training_set\train"
-    train_dataloader = Dataload(data_path, dataset_type = "train",gray=True,image_shape = (image_size, image_size), limit = 10000, need_fft = False)
-    # test_dataloader = Dataload(data_path, dataset_type = "test",gray=True,image_shape = (image_size, image_size), limit = 1000,  need_fft = False)
-    train_loader= DataLoader(
-        dataset = train_dataloader,
-        batch_size = batch_size,
-        shuffle = False,
-        drop_last = True
+
+    All_dataloader = Dataload(r"E:\Dataset\training_set\train")
+
+    train_size = int(len(All_dataloader.photo_set) * 0.8)
+    validate_size = len(All_dataloader.photo_set) - train_size
+
+
+
+    train_dataset, validate_dataset = torch.utils.data.random_split(All_dataloader
+                                                                    , [train_size, validate_size])
+
+    print("训练集大小: {} 测试集大小: {} , ".format(train_size,validate_size))
+
+    train_loader = DataLoader(
+        dataset=train_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=True,
     )
-    # test_loader= DataLoader(
-    #     dataset = test_dataloader,
-    #     batch_size = batch_size,
-    #     shuffle = True,
-    #     drop_last = True
-    # )
-    trainer =  Train(3,25,image_size,False)
+    validate_loader = DataLoader(
+        dataset=validate_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=True,
+    )
+
+
+    trainer = Train(3,25,image_size,False)
+
+    # trainer =  Train(3,25,image_size,False)
     # print(len(train_loader), len(test_loader))
     print("开始训练")
     trainer.train(100, train_loader)
+    # trainer.train_and_test(100, train_loader, validate_loader)
+    # trainer.test(validate_loader)

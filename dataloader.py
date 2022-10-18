@@ -12,60 +12,17 @@ import cv2
 import matplotlib.pyplot as plt
 import glob
 
-def fft_resove(img):
-    
-    dft = cv2.dft(np.float32(img), flags=cv2.DFT_COMPLEX_OUTPUT)
-    dft_shift = np.fft.fftshift(dft)
-    dft_shift[dft_shift==0] += 0.1
-    magnitude_spectrum = 20 * np.log(cv2.magnitude(dft_shift[:, :, 0], dft_shift[:, :, 1]))
-
-    rows, cols = img.shape
-    crow,ccol = int(rows/2) , int(cols/2)
-    
-    mask = np.zeros((rows,cols,2),np.uint8)
-    mask[crow-30:crow+30, ccol-30:ccol+30] = 1
-
-    fshift = dft_shift*mask
-    f_ishift = np.fft.ifftshift(fshift)
-
-    img_back = cv2.idft(f_ishift)
-    img_back = cv2.magnitude(img_back[:,:,0],img_back[:,:,1])
-    img_back = cv2.dft(np.float32(img_back), flags=cv2.DFT_COMPLEX_OUTPUT)
-    low_dft_shift = np.fft.fftshift(img_back)
-    low_dft_shift[low_dft_shift==0] += 0.1
-    #if 0 in low_dft_shift:
-
-    low_magnitude_spectrum = 20 * np.log(cv2.magnitude(low_dft_shift[:, :, 0], low_dft_shift[:, :, 1]))
-    
-    
-    mask2 = np.ones((rows,cols,2),np.uint8)
-    mask2[crow-30:crow+30, ccol-30:ccol+30] = 0
-    fshift = dft_shift*mask2
-    f_ishift = np.fft.ifftshift(fshift)
-
-    img_back = cv2.idft(f_ishift)
-    img_back = cv2.magnitude(img_back[:,:,0],img_back[:,:,1])
-    dft1 = cv2.dft(np.float32(img_back), flags=cv2.DFT_COMPLEX_OUTPUT)
-    high_dft_shift = np.fft.fftshift(dft1)
-    high_dft_shift[high_dft_shift==0] += 0.1
-
-
-    high_magnitude_spectrum1 = 20 * np.log(cv2.magnitude(high_dft_shift[:, :, 0], high_dft_shift[:, :, 1]))
-
-    return magnitude_spectrum, low_magnitude_spectrum, high_magnitude_spectrum1
 
 
 class Dataload(Dataset):
-    def __init__(self, file_path, batch_size = 1, data_source = None, gray = False, image_shape = (128,128), dataset_type = "train",
-                 keep_same = True, limit = None, need_fft = False,shuffle = False,same_matrix = True):
+    def __init__(self, file_path, batch_size = 1, data_source = None, gray = False, image_shape = (128,128),
+                 keep_same = True, limit = None, shuffle = False,same_matrix = True):
         self.file_path = file_path
         self.data_source = data_source
         self.batch_size = batch_size
         self.image_shape = image_shape
-        self.dataset_type = dataset_type
         self.limit = limit
-        self.fft = need_fft
-        self.datagen_fft = None
+
         self.photo_set = {}
         self.same_matrix =same_matrix
         self.gray = gray 
@@ -96,46 +53,14 @@ class Dataload(Dataset):
     def set_gan(self):
         cifar_norm_mean = (0.49139968, 0.48215827, 0.44653124)
         cifar_norm_std = (0.24703233, 0.24348505, 0.26158768)
-        if(self.dataset_type == "train"):
-            if not self.gray :
-                self.datagen = transforms.Compose([
+        method_list = [
                 transforms.ToPILImage(),
-                #transforms.Resize(self.image_shape),
-                #transforms.RandomCrop(self.image_shape[0], padding= int(self.image_shape[0]/8)),
-                #transforms.RandomRotation(5),  # 随机旋转
-                #transforms.RandomHorizontalFlip(),
+                transforms.Resize(self.image_shape),
                 transforms.ToTensor(),
                 transforms.Normalize(cifar_norm_mean, cifar_norm_std),
-                transforms.Grayscale(1),
-            ])
-            else:
-                self.datagen = transforms.Compose([
-                transforms.ToPILImage(),
-                #transforms.Resize(self.image_shape),
-                #transforms.RandomCrop(self.image_shape[0], padding= int(self.image_shape[0]/8)),
-                transforms.ColorJitter(0.2, 0.2, 0.2),  # 随机颜色变换,
-                #transforms.RandomRotation(5),  # 随机旋转
-                #transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize(cifar_norm_mean, cifar_norm_std),
-            ])
-        else:
-            if not self.gray:
-                self.datagen = transforms.Compose([
-                    transforms.ToPILImage(),
-                    transforms.Resize(self.image_shape),
-                    transforms.ToTensor(),
-                    transforms.Normalize(cifar_norm_mean, cifar_norm_std),
-                    transforms.Grayscale(1),
-                ])
-            else:
-                self.datagen = transforms.Compose([
-                    transforms.ToPILImage(),
-                    transforms.Resize(self.image_shape),
-                    transforms.ToTensor(),
-                    transforms.Normalize(cifar_norm_mean, cifar_norm_std),
+        ]
+        self.datagen = transforms.Compose(method_list)
 
-                ])
 
     def load_data(self, file_path , keep_same = True, shuffle = True):
         self.file_path_list = []
@@ -153,22 +78,10 @@ class Dataload(Dataset):
             5:'translating_Symbiodinium',
             6:'bleaching_Symbiodinium',
             7:'normal_Symbiodinium}'
-       }
-        if (self.dataset_type == "train"):
-            middle = file_path + "\\images\\"
-            label_path = file_path + "\\labels\\"
-
-        else:
-            middle =  file_path + "/valset/"
-            label_path = file_path + "/valset_label.txt"
-        print(middle, label_path)
-        if(not self.check_dir(middle)):
-            if(self.dataset_type == "train"):
-                raise RuntimeError('train dir not exists:'+ middle)
-            else:
-                raise RuntimeError('val dir not exists:' + middle)
-
-        for i in  os.listdir(middle):
+        }
+        middle = file_path + "\\images\\"
+        label_path = file_path + "\\labels\\"
+        for i in os.listdir(middle):
             num = os.path.splitext(i)[0]
             path = []
             x = middle + num + '.png'
@@ -176,6 +89,15 @@ class Dataload(Dataset):
             path.append(x)
             path.append(y)
             self.photo_set[int(num)] = path
+
+        print(middle, label_path)
+        if(not self.check_dir(middle)):
+            if(self.dataset_type == "train"):
+                raise RuntimeError('train dir not exists:'+ middle)
+            else:
+                raise RuntimeError('val dir not exists:' + middle)
+
+
             # pass
 
         print("total:", len(self.photo_set))
@@ -194,42 +116,27 @@ class Dataload(Dataset):
             a = index +430
             if(len(self.photo_set)>0):
 
+                image = self.read_image_data( self.photo_set[a][0] ,self.gray)
+                # print(image)
+                label = []
+                with open(self.photo_set[a][1]) as f:
+                    lines = f.readlines()
+                    for line in lines:
+                        x = line.replace('\n', '').split(' ')
+                        x = [float(i) for i in x]
+                        label.append(x)
+                label = torch.tensor(label)
+                l, m = label.shape
                 if(self.same_matrix):
                     # print("取矩阵大小相同")
                     # 训练集最大的向量为20
                     ones = -1 * np.ones([25, 5])
-                    image = self.read_image_data( self.photo_set[a][0] ,self.gray)
-                    # print(image)
-                    label = []
-                    with open(self.photo_set[a][1]) as f:
-                        lines = f.readlines()
-                        for line in lines:
-                            x = line.replace('\n', '').split(' ')
-                            x = [float(i) for i in x]
-                            label.append(x)
-                    label = torch.tensor(label)
-                    l, m = label.shape
                     ones[:l,:] =label
                     label = ones
                 # print(ones)
                 else:
                     # print("取矩阵大小不同")
-                    image = self.read_image_data(self.photo_set[a][0], self.gray)
-                    # print(image)
-                    ones = []
-                    with open(self.photo_set[a][1]) as f:
-                        lines = f.readlines()
-                        for line in lines:
-                            x = line.replace('\n', '').split(' ')
-                            x = [float(i) for i in x]
-                            ones.append(x)
-
-
-            w = image.shape[0]
-            h = image.shape[1]
-            # print("宽高为 {} {} ".format(w,h))
-            if(w,h) != self.image_shape:
-                image = cv2.resize(image, self.image_shape)
+                    pass
 
 
             if self.datagen is not None:
@@ -256,7 +163,7 @@ if __name__ == '__main__':
     
     batch_size = 32
 
-    train_dataloader = Dataload(r"E:\Dataset\training_set\train", dataset_type = "train")
+    train_dataloader = Dataload(r"E:\Dataset\training_set\train")
 
     train_loader= DataLoader(
         dataset = train_dataloader,
@@ -271,4 +178,5 @@ if __name__ == '__main__':
     # print(b)
 
     for data in train_loader:
-        print(data)
+        img,label =data
+        print(img.shape)
