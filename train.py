@@ -38,12 +38,12 @@ class Train():
         self.name = "dense121"
 
         self.costCross = torch.nn.CrossEntropyLoss()
-        self.costL2= torch.nn.MSELoss()
+        self.costL2= torch.nn.SmoothL1Loss()
         # self.cost = torch.nn.MSELoss()
         if(use_gpu):
             self.model = self.model.to(device)
-            self.costCross = torch.nn.CrossEntropyLoss().to(device)
-            self.costL2 = torch.nn.MSELoss().to(device)
+            self.costCross = self.costCross.to(device)
+            self.costL2 = self.costL2.to(device)
         if(is_show):
             summary(self.model, ( self.in_channels, self.image_size, self.image_size ))
         
@@ -104,17 +104,15 @@ class Train():
 
                 outputs = self.model(X_test)
 
-                lossClass = self.costCross(d['pred_logits'].view(-1, self.out_channels + 1), y_test[:,:,0].long().view(-1))
-                lossCoord = self.costL2(outputs["pred_boxes"], y_test[:,:,1:])
-
+                lossClass = self.costCross(outputs['pred_logits'].view(-1, self.out_channels + 1), y_test[:,:,0].long().view(-1))
+                lossCoord = self.costL2(outputs["pred_boxes"].float(), y_test[:,:,1:].float())
                 loss = lossClass + lossCoord
-                
-                pred = torch.argmax(d['pred_logits'].view(-1, self.out_channels + 1),1)
+                pred = torch.argmax(outputs['pred_logits'].view(-1, self.out_channels + 1),1)
                 label = y_test[:,:,0].long().view(-1)
-                acc = np.mean([ pred == label for i in range(len(pred))])
+                acc = torch.mean((pred == label).float())
 
 
-                running_correct += acc
+                running_correct += acc.cpu().numpy()
                 running_loss += loss.data.item()
                 coord_loss += lossCoord.data.item()
                 class_loss += lossClass.data.item()
@@ -137,29 +135,28 @@ class Train():
             if(use_gpu):
                 X_train = X_train.to(device)
                 y_train = y_train.to(device)
-             
+            print("训练中 train {}".format(X_train.shape))
             self.optimizer.zero_grad()
 
             outputs  = self.model(X_train)
-           
-            lossClass = self.costCross(d['pred_logits'].view(-1, self.out_channels + 1), y_train[:,:,0].long().view(-1))
-            lossCoord = self.costL2(outputs["pred_boxes"], y_train[:,:,1:])
+            #print(outputs["pred_boxes"])
+            lossClass = self.costCross(outputs['pred_logits'].view(-1, self.out_channels + 1).float(), y_train[:,:,0].long().view(-1))
+            lossCoord = self.costL2(outputs["pred_boxes"].float(), y_train[:,:,1:].float())
             loss = lossClass + lossCoord
-
-             
-
+            #loss = loss.float()
             loss.backward()
             self.optimizer.step()
 
-            pred = torch.argmax(d['pred_logits'].view(-1, self.out_channels + 1),1)
+            pred = torch.argmax(outputs['pred_logits'].view(-1, self.out_channels + 1),1)
             label = y_train[:,:,0].long().view(-1)
-            acc = np.mean([ pred == label for i in range(len(pred))])
-
+            acc = torch.mean((pred == label).float())
+            #acc = torch.mean([pred[i].cpu() == label[i] for i in range(len(pred))])
+            #print(acc)
             coord_loss += lossCoord.data.item()
             class_loss += lossClass.data.item()
 
             running_loss += loss.data.item()
-            running_correct += acc
+            running_correct += acc.cpu().data.item()
             train_index += 1
 
         epoch_train_acc = running_correct/train_index
@@ -209,12 +206,10 @@ class Train():
     def load_parameter(self, file_path = './save/' ):
         self.model.load_state_dict(torch.load(file_path))
 
-
-if __name__ == "__main__":
-
+def trainTest():
     batch_size = 128
     image_size = 128
-    data_path= r"E:\Dataset\training_set\train"
+    data_path = r"E:\Dataset\training_set\train"
 
     All_dataloader = Dataload(r"E:\Dataset\training_set\train")
 
@@ -224,7 +219,7 @@ if __name__ == "__main__":
     train_dataset, validate_dataset = torch.utils.data.random_split(All_dataloader
                                                                     , [train_size, validate_size])
 
-    print("训练集大小: {} 测试集大小: {} , ".format(train_size,validate_size))
+    print("训练集大小: {} 测试集大小: {} , ".format(train_size, validate_size))
 
     train_loader = DataLoader(
         dataset=train_dataset,
@@ -239,12 +234,14 @@ if __name__ == "__main__":
         drop_last=True,
     )
 
-
-    trainer = Train(3,4,image_size,False)
+    trainer = Train(3, 8, image_size, False)
 
     # trainer =  Train(3,25,image_size,False)
     # print(len(train_loader), len(test_loader))
     print("开始训练")
-    # trainer.train(train_loader)
+    trainer.train(train_loader)
     # trainer.train_and_test(100, train_loader, validate_loader)
-    trainer.test(validate_loader)
+    # trainer.test(validate_loader)
+
+if __name__ == "__main__":
+    trainTest()
