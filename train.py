@@ -1,24 +1,22 @@
 from dataloader import Dataload
 from torch.utils.data import DataLoader
+#from model.Tvit import ViT as Model
+#from torchvision.models import resnet50
+#from model.Ceffici import crop_model
+#from model.efficientnet_pytorch.utils import get_blocks_args_global_params_b4,get_blocks_args_global_params_b6
+from model.DesNet import crop_model
+#from model.distill import DistillableViT, DistillWrapper
 from torch.autograd import Variable
 from torchsummary import summary
+import tensorboard
 import os
 import torch
 import numpy as np
 import datetime
-import GPUtil
-use_gpu = torch.cuda.is_available()
-if(use_gpu):
-    deviceIDs = GPUtil.getAvailable(order = 'first', limit = 1, maxLoad = 0.8, maxMemory = 0.8, includeNan=False, excludeID=[], excludeUUID=[])
-    if(len(deviceIDs) == 0):
-        deviceIDs = GPUtil.getAvailable(order = 'first', limit = 1, maxLoad = 1, maxMemory = 1, includeNan=False, excludeID=[], excludeUUID=[])
-        #print(deviceIDs)
-        print("detect set :", deviceIDs)
-        device = torch.device("cuda:"+str(deviceIDs[0]))
-else:
-    device = torch.device("cpu")
-print("use gpu:", use_gpu)
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+use_gpu = torch.cuda.is_available()
+print("use gpu:",use_gpu)
 class Train():
     def __init__(self, in_channles, out_channels, image_size = 128,is_show = True):
         self.in_channels = in_channles
@@ -32,12 +30,51 @@ class Train():
         self.create(is_show)
     
     def create(self, is_show):
+        # self.teacher = resnet50(pretrained = True)
+
+        # self.model = DistillableViT(
+        #     image_size = self.image_size,
+        #     patch_size = int(self.image_size/3),
+        #     num_classes = self.out_channels,
+        #     dim = 1024,
+        #     depth = 6,
+        #     heads = 8,
+        #     mlp_dim = 2048,
+        #     dropout = 0.1,
+        #     emb_dropout = 0.1,
+
+        # )
+
+        # self.cost = DistillWrapper(
+        #     student = self.model,
+        #     teacher = self.teacher,
+        #     temperature = 3,           # temperature of distillation
+        #     alpha = 0.5,               # trade between main loss and distillation loss
+        #     hard = False ,              # whether to use soft or hard distillation
+        #     need_ans = True,
+        # )
+        # self.name = "efficient_linear_gray"
+        # a,b = get_blocks_args_global_params_b6(64)
+        # self.model = crop_model(a,b,self.in_channels)
+
         from model.DesNet import DenseCoord as Model
         self.model = Model(in_channel=self.in_channels, num_classes=self.out_channels)
         self.name = "dense121"
+       
+        # self.model = Model(
+        #     image_size = self.image_size,
+        #     patch_size = int(self.image_size/8),
+        #     num_classes = self.out_channels,
+        #     dim = 1024,
+        #     depth = 6,
+        #     heads = 8,
+        #     mlp_dim = 2048,
+        #     channels = self.in_channels,
+        # )
 
         self.costCross = torch.nn.CrossEntropyLoss()
         self.costLTwo = torch.nn.MSELoss()
+        # self.cost = torch.nn.MSELoss()
         if(use_gpu):
             torch.cuda.manual_seed(3407)
             self.model = self.model.cuda()

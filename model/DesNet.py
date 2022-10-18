@@ -124,8 +124,8 @@ class DenseCoord(densenet):
 
         super(DenseCoord,self).__init__(in_channel, num_classes, growth_rate=growth_rate, block_layers=block_layers,
                                         need_return_dic = need_return_dic)
-        self.num_classes = num_classes
-        self.class_embed = nn.Linear(1024, num_classes * num_queries)
+        self.num_classes = num_classes + 1
+        self.class_embed = nn.Linear(1024, self.num_classes * num_queries)
         self.bbox_embed = MLP(1024, 1024, 4 * num_queries, 3)
         #self.bbox_embed = ShareMLP(1024, 1024, 4 * num_queries, 3)
         
@@ -148,12 +148,14 @@ class DenseCoord(densenet):
         return x
     def forward(self, x):
         feature_map = self.feature(x)
-        print(feature_map.shape)
+
         class_feature = self.class_embed(feature_map)
+        
         outputs_class = class_feature.view(class_feature.shape[0], -1, self.num_classes)    # one-hot
+
         outputs_coord = self.bbox_embed(feature_map).sigmoid()
-        print(outputs_class.shape)
-        print(outputs_coord.shape)
+        #print(outputs_class.shape)
+        #print(outputs_coord.shape)
         return self.build_results(outputs_class, outputs_coord) if (self.need_return_dict) else [outputs_class,outputs_coord]
 
 
