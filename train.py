@@ -18,7 +18,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 use_gpu = torch.cuda.is_available()
 print("use gpu:",use_gpu)
 class Train():
-    def __init__(self, in_channles, out_channels, image_size = 256,is_show = True):
+    def __init__(self, in_channles, out_channels, image_size = 128,is_show = True):
         self.in_channels = in_channles
         self.out_channels = out_channels
         self.image_size = image_size
@@ -57,8 +57,8 @@ class Train():
         # a,b = get_blocks_args_global_params_b6(64)
         # self.model = crop_model(a,b,self.in_channels)
 
-        from model.DesNet import densenet as Model
-        self.model = Model(in_channel=3, num_classes=8)
+        from model.DesNet import DenseCoord as Model
+        self.model = Model(in_channel=1, num_classes=self.out_channels)
         self.name = "dense121"
        
         # self.model = Model(
@@ -73,13 +73,13 @@ class Train():
         # )
 
         self.cost = torch.nn.CrossEntropyLoss()
+        # self.cost = torch.nn.MSELoss()
         if(use_gpu):
             self.model = self.model.cuda()
             self.cost = self.cost.cuda()
         if(is_show):
             summary(self.model, ( self.in_channels, self.image_size, self.image_size ))
         
-        #self.cost = torch.nn.MSELoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr = self.lr, betas=(0.5, 0.999))
     def train_and_test(self, n_epochs, data_loader_train, data_loader_test):
         for epoch in range(n_epochs):
@@ -131,7 +131,9 @@ class Train():
                 outputs = self.model(X_test)
                 #loss = self.cost(outputs, y_test)
                 #loss = 0
-                loss = self.cost(outputs["pred_logits"], y_test.long())
+
+                loss = self.cost(outputs["pred_logits"].double(), y_test.double())
+
                 running_loss += loss.data.item()
                 _,pred = torch.max(outputs["pred_logits"].data, 1)
                 ans1 =  [ 1 if y_test[index] == pred[index] else 0 for index in range(pred.size()[0])]
@@ -146,14 +148,19 @@ class Train():
 
     def train(self, n_epochs, data_loader_train):
         self.model.train()
+        self.model.cuda(0)
         best_acc = 0
         running_loss = 0.0
         running_correct = 0
-
+        # print(data_loader_train[0])
         train_index = 0
         for i in range(n_epochs):
+            print("开始第{}轮训练 GPU：{} ".format(i,use_gpu))
+            print(len(data_loader_train))
             for data in data_loader_train:
+                # print("数据为{}".format(data))
                 X_train, y_train  = data
+                # print("x: {} y :{}".format(X_train.shape,y_train.shape))
                 X_train, y_train = Variable(X_train).float(), Variable(y_train)
                 # X_train, y_train , X_train_F, _, _ = data
                 # X_train, y_train, X_train_F = Variable(X_train).float(), Variable(y_train), Variable(X_train_F).float()
@@ -164,9 +171,12 @@ class Train():
 
                 #X_train = self.crop_tensor(X_train,3)
                 self.optimizer.zero_grad()
+                # print("运行到这里 {}".format(X_train.size()))
                 outputs  = self.model(X_train)
-                print(outputs)
-                loss = self.cost(outputs["pred_logits"], y_train.long())
+                # print(outputs)
+                # print(outputs["pred_logits"].shape)
+                # print(y_train.shape)
+                loss = self.cost(outputs["pred_logits"].double(), y_train.double())
                 loss.backward()
                 self.optimizer.step()
 
@@ -174,13 +184,14 @@ class Train():
 
                 _,pred = torch.max(outputs["pred_logits"].data, 1)
                 print("pred {}".format(pred))
-                ans1 =  [ 1 if y_train[index] == pred[index] else 0 for index in range(pred.size()[0])]
+                # ans1 =  [ 1 if y_train[index] == pred[index] else 0 for index in range(pred.size()[0])]
 
-                running_correct += np.sum(ans1) / len(ans1)
+                # running_correct += np.sum(ans1) / len(ans1)
                 train_index += 1
-                print("ans {}" .format(ans1))
+                # print("ans {}" .format(ans1))
                 print("train_index {}" .format(train_index))
 
+        self.save_parameter("./save_best/", "best")
 
 
 
@@ -188,7 +199,6 @@ class Train():
         #     best_acc = epoch_test_acc
         #     es = 0
         #     self.save_parameter("./save_best/", "best")
-        self.save_parameter("./save_best/", "best")
         # else:
         #     es += 1
         #     print("Counter {} of 10".format(es))
@@ -258,7 +268,7 @@ class Train():
         # self.model.load_state_dict(torch.load('model_parameter.pkl'))
 if __name__ == "__main__":
 
-    batch_size = 3
+    batch_size = 128
     image_size = 128
     data_path= r"E:\Dataset\training_set\train"
     train_dataloader = Dataload(data_path, dataset_type = "train",gray=True,image_shape = (image_size, image_size), limit = 10000, need_fft = False)
@@ -275,6 +285,7 @@ if __name__ == "__main__":
     #     shuffle = True,
     #     drop_last = True
     # )
-    trainer =  Train(3,2,image_size,False)
+    trainer =  Train(3,25,image_size,False)
     # print(len(train_loader), len(test_loader))
+    print("开始训练")
     trainer.train(100, train_loader)

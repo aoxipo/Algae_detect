@@ -55,9 +55,9 @@ def fft_resove(img):
     return magnitude_spectrum, low_magnitude_spectrum, high_magnitude_spectrum1
 
 
-class Dataload():
+class Dataload(Dataset):
     def __init__(self, file_path, batch_size = 1, data_source = None, gray = False, image_shape = (128,128), dataset_type = "train",
-                 keep_same = True, limit = None, need_fft = False,shuffle = False):
+                 keep_same = True, limit = None, need_fft = False,shuffle = False,same_matrix = True):
         self.file_path = file_path
         self.data_source = data_source
         self.batch_size = batch_size
@@ -66,6 +66,8 @@ class Dataload():
         self.limit = limit
         self.fft = need_fft
         self.datagen_fft = None
+        self.photo_set = {}
+        self.same_matrix =same_matrix
         if(gray):
             self.channels = 1
         else:
@@ -143,7 +145,7 @@ class Dataload():
         self.label_list_True = []
         self.label_list_False = []
         self.lable_list_val = []
-        self.photo_set = {}
+
         self.label_dict = {
             0:'Bacillariophyta',
             1:'Chlorella',
@@ -157,16 +159,7 @@ class Dataload():
         if (self.dataset_type == "train"):
             middle = file_path + "\\images\\"
             label_path = file_path + "\\labels\\"
-        elif(self.dataset_type == "val"):
-            file = os.listdir(file_path)
-            if(len(file) != 2):
-                raise RuntimeError("file not val type file")
-            for file_object in file:
-                if(file_object[-4:] == ".txt"):
-                    label_path =file_path + "/" + file_object 
-                else:
-                    middle = file_path + "/" + file_object + "/"
-        
+
         else:
             middle =  file_path + "/valset/"
             label_path = file_path + "/valset_label.txt"
@@ -176,9 +169,6 @@ class Dataload():
                 raise RuntimeError('train dir not exists:'+ middle)
             else:
                 raise RuntimeError('val dir not exists:' + middle)
-
-
-
 
         for i in  os.listdir(middle):
             num = os.path.splitext(i)[0]
@@ -193,32 +183,52 @@ class Dataload():
 
         print("total:", len(self.photo_set))
 
+    def __iter__(self):
+        return self
+
+
     def __getitem__(self, index):
         """
         获取对应index的图像，并视情况进行数据增强
         """
+        if(index >= self.__len__()):
+            return
         try:
-            a = index
+            a = index +430
             if(len(self.photo_set)>0):
-                ones = -1 * np.ones(500).reshape([100, 5])
-                image = self.read_image_data( self.photo_set[index][0] )
-                # print(image)
-                label = []
-                with open(self.photo_set[index][1]) as f:
-                    lines = f.readlines()
-                    for line in lines:
-                        x = line.replace('\n', '').split(' ')
-                        x = [float(i) for i in x]
-                        label.append(x)
-                label = torch.tensor(label)
-                l, m = label.shape
-                ones[:l,:] =label
+                if(self.same_matrix):
+                    # print("取矩阵大小相同")
+                    # 训练集最大的向量为20
+                    ones = -1 * np.ones([25, 5])
+                    image = self.read_image_data( self.photo_set[a][0] )
+                    # print(image)
+                    label = []
+                    with open(self.photo_set[a][1]) as f:
+                        lines = f.readlines()
+                        for line in lines:
+                            x = line.replace('\n', '').split(' ')
+                            x = [float(i) for i in x]
+                            label.append(x)
+                    label = torch.tensor(label)
+                    l, m = label.shape
+                    ones[:l,:] =label
                 # print(ones)
+                else:
+                    # print("取矩阵大小不同")
+                    image = self.read_image_data(self.photo_set[a][0])
+                    # print(image)
+                    ones = []
+                    with open(self.photo_set[a][1]) as f:
+                        lines = f.readlines()
+                        for line in lines:
+                            x = line.replace('\n', '').split(' ')
+                            x = [float(i) for i in x]
+                            ones.append(x)
 
 
             w = image.shape[0]
             h = image.shape[1]
-            print("宽高为 {} {} ".format(w,h))
+            # print("宽高为 {} {} ".format(w,h))
             if(w,h) != self.image_shape:
                 image = cv2.resize(image, self.image_shape)
 
@@ -233,29 +243,32 @@ class Dataload():
                     origin = self.datagen_fft(origin)
                     low = self.datagen_fft(low)
                     high = self.datagen_fft(high)
-            
+
             if self.datagen is not None:
                 image = self.datagen(image)
-            
+            if self.dataset_type == "val":
+                if self.fft:
+                    return image, label, origin, low, high
+                else:
+                    return image, label
+            else:
+
+                if self.fft:
+                    return image, ones, origin, low, high
+                else:
+                    return image, ones
 
         except Exception as e:
+            print("发现异常")
+            print(e.__class__.__name__)
             print(e)
 
-        if self.dataset_type == "val":
-            if self.fft:
-                return image, label, origin, low, high
-            else:
-                return image, label
-        else:
-
-            if self.fft:
-                return image, ones, origin, low, high
-            else:
-                return image, ones
 
 
     def __len__(self):
-        return len(self.file_path_list)
+        x = len(self.photo_set)
+        # print(x)
+        return x
     
          
 
@@ -271,8 +284,11 @@ if __name__ == '__main__':
         shuffle = False,
         drop_last = True
     )
-    a, b= train_dataloader[500]
-    print("photo")
-    print(a)
-    print("label")
-    print(b)
+    # a, b= train_loader[500]
+    # print("photo")
+    # print(a)
+    # print("label")
+    # print(b)
+
+    for data in train_loader:
+        print(data)
