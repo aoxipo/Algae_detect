@@ -68,6 +68,7 @@ class Dataload(Dataset):
         self.datagen_fft = None
         self.photo_set = {}
         self.same_matrix =same_matrix
+        self.gray = gray 
         if(gray):
             self.channels = 1
         else:
@@ -96,13 +97,13 @@ class Dataload(Dataset):
         cifar_norm_mean = (0.49139968, 0.48215827, 0.44653124)
         cifar_norm_std = (0.24703233, 0.24348505, 0.26158768)
         if(self.dataset_type == "train"):
-            if self.channels == 1:
+            if not self.gray :
                 self.datagen = transforms.Compose([
                 transforms.ToPILImage(),
                 #transforms.Resize(self.image_shape),
                 #transforms.RandomCrop(self.image_shape[0], padding= int(self.image_shape[0]/8)),
                 #transforms.RandomRotation(5),  # 随机旋转
-                transforms.RandomHorizontalFlip(),
+                #transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize(cifar_norm_mean, cifar_norm_std),
                 transforms.Grayscale(1),
@@ -114,12 +115,12 @@ class Dataload(Dataset):
                 #transforms.RandomCrop(self.image_shape[0], padding= int(self.image_shape[0]/8)),
                 transforms.ColorJitter(0.2, 0.2, 0.2),  # 随机颜色变换,
                 #transforms.RandomRotation(5),  # 随机旋转
-                transforms.RandomHorizontalFlip(),
+                #transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize(cifar_norm_mean, cifar_norm_std),
             ])
         else:
-            if self.channels == 1:
+            if not self.gray:
                 self.datagen = transforms.Compose([
                     transforms.ToPILImage(),
                     transforms.Resize(self.image_shape),
@@ -135,9 +136,6 @@ class Dataload(Dataset):
                     transforms.Normalize(cifar_norm_mean, cifar_norm_std),
 
                 ])
-        self.datagen_fft = transforms.Compose([
-                transforms.ToTensor(),
-        ])
 
     def load_data(self, file_path , keep_same = True, shuffle = True):
         self.file_path_list = []
@@ -177,7 +175,6 @@ class Dataload(Dataset):
             y = label_path + num + '.txt'
             path.append(x)
             path.append(y)
-
             self.photo_set[int(num)] = path
             # pass
 
@@ -196,11 +193,12 @@ class Dataload(Dataset):
         try:
             a = index +430
             if(len(self.photo_set)>0):
+
                 if(self.same_matrix):
                     # print("取矩阵大小相同")
                     # 训练集最大的向量为20
                     ones = -1 * np.ones([25, 5])
-                    image = self.read_image_data( self.photo_set[a][0] )
+                    image = self.read_image_data( self.photo_set[a][0] ,self.gray)
                     # print(image)
                     label = []
                     with open(self.photo_set[a][1]) as f:
@@ -212,10 +210,11 @@ class Dataload(Dataset):
                     label = torch.tensor(label)
                     l, m = label.shape
                     ones[:l,:] =label
+                    label = ones
                 # print(ones)
                 else:
                     # print("取矩阵大小不同")
-                    image = self.read_image_data(self.photo_set[a][0])
+                    image = self.read_image_data(self.photo_set[a][0], self.gray)
                     # print(image)
                     ones = []
                     with open(self.photo_set[a][1]) as f:
@@ -232,31 +231,12 @@ class Dataload(Dataset):
             if(w,h) != self.image_shape:
                 image = cv2.resize(image, self.image_shape)
 
-            if self.fft :
-                if(len(image.shape) == 3):
-                    image2 = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-                else:
-                    image2 = image
-
-                origin,low,high = fft_resove(image2)
-                if self.datagen_fft is not None:
-                    origin = self.datagen_fft(origin)
-                    low = self.datagen_fft(low)
-                    high = self.datagen_fft(high)
 
             if self.datagen is not None:
                 image = self.datagen(image)
-            if self.dataset_type == "val":
-                if self.fft:
-                    return image, label, origin, low, high
-                else:
-                    return image, label
-            else:
 
-                if self.fft:
-                    return image, ones, origin, low, high
-                else:
-                    return image, ones
+            return image, label
+     
 
         except Exception as e:
             print("发现异常")
