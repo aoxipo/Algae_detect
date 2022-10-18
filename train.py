@@ -7,10 +7,8 @@ import torch
 import numpy as np
 import datetime
 import GPUtil
-
 use_gpu = torch.cuda.is_available()
 torch.cuda.manual_seed(3407)
-
 if(use_gpu):
     deviceIDs = GPUtil.getAvailable(order = 'first', limit = 1, maxLoad = 0.8, maxMemory = 0.8, includeNan=False, excludeID=[], excludeUUID=[])
     if(len(deviceIDs) != 0):
@@ -55,103 +53,118 @@ class Train():
             start_time =datetime.datetime.now()
             print("Epoch {}/{}".format(epoch, n_epochs))
             print("-" * 10)
-            epoch_train_acc, epoch_train_loss = self.train(n_epochs,data_loader_train)
-            epoch_test_acc, epoch_test_loss = self.test(data_loader_test)
+            epoch_train_acc, epoch_train_loss, coord_train_loss, class_train_loss = self.train(n_epochs,data_loader_train)
+            epoch_test_acc, epoch_test_loss, coord_test_loss, class_test_loss = self.test(data_loader_test)
 
             self.history_acc.append(epoch_train_acc)
             self.history_loss.append(epoch_train_loss)
             self.history_test_acc.append(epoch_test_acc)
             self.history_test_loss.append(epoch_test_loss)
             print(
-                "Loss is:{:.4f}, Train Accuracy is:{:.4f}, Loss is:{:.4f}, Test Accuracy is:{:.4f}, cost time:{:.4f} min, EAT:{:.4f}".format(
+                "Loss is:{:.4f}, Train Accuracy is:{:.4f}, Coord:{:.4f}, Class:{:.4f}\nLoss is:{:.4f}, Test Accuracy is:{:.4f}, Coord:{:.4f}, Class:{:.4f}\ncost time:{:.4f} min, EAT:{:.4f}".format(
                     epoch_train_loss,
                     epoch_train_acc,
+                    coord_train_loss, class_train_loss,
                     epoch_test_loss,
                     epoch_test_acc,
+                    coord_test_loss, class_test_loss,
                     (datetime.datetime.now() - start_time).seconds / 60,
                     (n_epochs - 1 - epoch) * (datetime.datetime.now() - start_time).seconds / 60,
                 )
             )
+            if ((epoch_test_acc > 95 and epoch_test_acc > best_acc) or  (epoch_test_acc <= 95 and epoch_test_acc > best_acc + 1) ) :
+                best_acc = epoch_test_acc
+                es = 0
+                self.save_parameter("./save_best/", "best")
+            else:
+                es += 1
+                print("Counter {} of 10".format(es))
+
+                if es > 4:
+                    print("Early stopping with best_acc: ", best_acc, "and val_acc for this epoch: ", epoch_test_acc, "...")
+                    break
         self.save_history()
         self.save_parameter()
 
 
     def test(self,data_loader_test):
         self.model.eval()
-        testing_correct = 0
+        running_correct = 0
         running_loss =0
-        running_test_loss = 0
-        epoch_loss = 0
         test_index = 0
+        coord_loss = 0
+        class_loss = 0
         with torch.no_grad():
-            print("开始测试")
             for data in data_loader_test:
                 X_test, y_test = data
                 X_test, y_test = Variable(X_test).float(), Variable(y_test)
                 if(use_gpu):
                     X_test = X_test.to(device)
                     y_test = y_test.to(device)
-                # outputs = self.model(X_test, y_test_F)
-                # X_test = self.crop_tensor(X_test,3)
+
                 outputs = self.model(X_test)
-                #loss = 0
 
-                loss = self.costCross(outputs["pred_logits"].double(), y_test.double())
+                lossClass = self.costCross(d['pred_logits'].view(-1, self.out_channels + 1), y_test[:,:,0].long().view(-1))
+                lossCoord = self.costL2(outputs["pred_boxes"], y_test[:,:,1:])
 
+                loss = lossClass + lossCoord
+                
+                pred = torch.argmax(d['pred_logits'].view(-1, self.out_channels + 1),1)
+                label = y_test[:,:,0].long().view(-1)
+                acc = np.mean([ pred == label for i in range(len(pred))])
+
+
+                running_correct += acc
                 running_loss += loss.data.item()
-
+                coord_loss += lossCoord.data.item()
+                class_loss += lossClass.data.item()
                 test_index += 1
-                epoch_loss = running_loss/test_index
-                print("running_loss: {}  " .format(running_loss))
-            # print("running_loss: {} epoch_loss{} " .format(running_loss,  epoch_loss))
 
-
-
+        epoch_acc =  running_correct/test_index
+        epoch_loss = running_loss/test_index
+        return  epoch_acc, epoch_loss, coord_loss/test_index, class_loss/test_index
+            
     def train(self, data_loader_train):
         self.model.train()
-        self.model.to(device)
-        best_acc = 0
-
         running_correct = 0
-        # print(data_loader_train[0])
         train_index = 0
-
+        running_loss = 0.0
+        coord_loss = 0
+        class_loss = 0
         for data in data_loader_train:
-            running_loss = 0.0
-            # print("数据为{}".format(data))
             X_train, y_train  = data
-            # print("x: {} y :{}".format(X_train.shape,y_train.shape))
             X_train, y_train = Variable(X_train).float(), Variable(y_train)
-            # X_train, y_train , X_train_F, _, _ = data
-            # X_train, y_train, X_train_F = Variable(X_train).float(), Variable(y_train), Variable(X_train_F).float()
             if(use_gpu):
                 X_train = X_train.to(device)
                 y_train = y_train.to(device)
-                #X_train_F = X_train_F.to(device)
-
-            #X_train = self.crop_tensor(X_train,3)
+             
             self.optimizer.zero_grad()
-            # print("运行到这里 {}".format(X_train.size()))
+
             outputs  = self.model(X_train)
-
-            print("shape is {}".format(outputs["pred_logits"].shape))
-            print("output0  {} y_train0  {}".format(outputs["pred_logits"][:,:,0].shape,y_train[:,:,0].double().shape))
-            lossClass = self.costCross(outputs["pred_logits"][:,:,0].double(), y_train[:,:,0].double())
-
-            print("output {} y_train {}".format(outputs["pred_logits"][:,:,1:].shape,y_train[:,:,1:].double().shape))
-            lossCoord = self.costL2(outputs["pred_logits"][:,:,1:].double(), y_train[:,:,1:].double())
+           
+            lossClass = self.costCross(d['pred_logits'].view(-1, self.out_channels + 1), y_train[:,:,0].long().view(-1))
+            lossCoord = self.costL2(outputs["pred_boxes"], y_train[:,:,1:])
             loss = lossClass + lossCoord
+
+             
+
             loss.backward()
             self.optimizer.step()
 
+            pred = torch.argmax(d['pred_logits'].view(-1, self.out_channels + 1),1)
+            label = y_train[:,:,0].long().view(-1)
+            acc = np.mean([ pred == label for i in range(len(pred))])
+
+            coord_loss += lossCoord.data.item()
+            class_loss += lossClass.data.item()
+
             running_loss += loss.data.item()
-
+            running_correct += acc
             train_index += 1
-            # print("ans {}" .format(ans1))
-            print("train_index {} running_loss {}" .format(train_index,running_loss))
 
-        self.save_parameter("./save_best/", "best")
-
+        epoch_train_acc = running_correct/train_index
+        epoch_train_loss = running_loss/train_index
+        return epoch_train_acc, epoch_train_loss, coord_loss/train_index, class_loss/train_index
 
     def predict(self, image):
 
@@ -167,21 +180,6 @@ class Train():
             output = self.model(image )
             _, preds = torch.max(output.data, 1)
         return preds
-
-    def crop_tensor(self, image_pack, scale = 4):
-        _, _, w, h = image_pack.size()
-        a = int(w/scale)
-        b = int(h/scale)
-        t = torch.split(image_pack, a, dim = 2)
-        ans = []
-        for i in t:
-            ans.append(torch.split(i,b, dim=3))
-        ans_flat = []
-        for i in range(scale):
-            for j in range(scale):
-                ans_flat.append(ans[i][j])
-        return ans_flat
-        
 
     def save_history(self, file_path = './save/'):
         file_path = file_path + self.name +"/"
