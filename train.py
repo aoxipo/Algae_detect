@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 #from torchvision.models import resnet50
 #from model.Ceffici import crop_model
 #from model.efficientnet_pytorch.utils import get_blocks_args_global_params_b4,get_blocks_args_global_params_b6
-from model.DesNet import crop_model
+# from model.DesNet import crop_model
 #from model.distill import DistillableViT, DistillWrapper
 from torch.autograd import Variable
 from torchsummary import summary
@@ -13,10 +13,21 @@ import os
 import torch
 import numpy as np
 import datetime
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+import GPUtil
 
 use_gpu = torch.cuda.is_available()
-print("use gpu:",use_gpu)
+torch.cuda.manual_seed(3407)
+
+if(use_gpu):
+    deviceIDs = GPUtil.getAvailable(order = 'first', limit = 1, maxLoad = 0.8, maxMemory = 0.8, includeNan=False, excludeID=[], excludeUUID=[])
+    if(len(deviceIDs) != 0):
+        deviceIDs = GPUtil.getAvailable(order = 'first', limit = 1, maxLoad = 1, maxMemory = 1, includeNan=False, excludeID=[], excludeUUID=[])
+        print(deviceIDs)
+        print("detect set :", deviceIDs)
+        device = torch.device("cuda:"+str(deviceIDs[0]))
+else:
+    device = torch.device("cpu")
+print("use gpu:", use_gpu)
 class Train():
     def __init__(self, in_channles, out_channels, image_size = 128,is_show = True):
         self.in_channels = in_channles
@@ -30,56 +41,18 @@ class Train():
         self.create(is_show)
     
     def create(self, is_show):
-        # self.teacher = resnet50(pretrained = True)
-
-        # self.model = DistillableViT(
-        #     image_size = self.image_size,
-        #     patch_size = int(self.image_size/3),
-        #     num_classes = self.out_channels,
-        #     dim = 1024,
-        #     depth = 6,
-        #     heads = 8,
-        #     mlp_dim = 2048,
-        #     dropout = 0.1,
-        #     emb_dropout = 0.1,
-
-        # )
-
-        # self.cost = DistillWrapper(
-        #     student = self.model,
-        #     teacher = self.teacher,
-        #     temperature = 3,           # temperature of distillation
-        #     alpha = 0.5,               # trade between main loss and distillation loss
-        #     hard = False ,              # whether to use soft or hard distillation
-        #     need_ans = True,
-        # )
-        # self.name = "efficient_linear_gray"
-        # a,b = get_blocks_args_global_params_b6(64)
-        # self.model = crop_model(a,b,self.in_channels)
 
         from model.DesNet import DenseCoord as Model
-        self.model = Model(in_channel=self.in_channels, num_classes=self.out_channels)
+        self.model = Model(in_channel=self.in_channels, num_classes=self.out_channels, num_queries = 25)
         self.name = "dense121"
-       
-        # self.model = Model(
-        #     image_size = self.image_size,
-        #     patch_size = int(self.image_size/8),
-        #     num_classes = self.out_channels,
-        #     dim = 1024,
-        #     depth = 6,
-        #     heads = 8,
-        #     mlp_dim = 2048,
-        #     channels = self.in_channels,
-        # )
 
         self.costCross = torch.nn.CrossEntropyLoss()
-        self.costLTwo = torch.nn.MSELoss()
+        self.costL2= torch.nn.MSELoss()
         # self.cost = torch.nn.MSELoss()
         if(use_gpu):
-            torch.cuda.manual_seed(3407)
-            self.model = self.model.cuda()
-            self.costCross = torch.nn.CrossEntropyLoss().cuda()
-            self.costLTwo = torch.nn.MSELoss().cuda()
+            self.model = self.model.to(device)
+            self.costCross = torch.nn.CrossEntropyLoss().to(device)
+            self.costL2 = torch.nn.MSELoss().to(device)
         if(is_show):
             summary(self.model, ( self.in_channels, self.image_size, self.image_size ))
         
@@ -118,13 +91,8 @@ class Train():
         epoch_loss = 0
         test_index = 0
         with torch.no_grad():
+            print("开始测试")
             for data in data_loader_test:
-                # X_test, y_test, y_test_F, _, _ = data
-                # X_test, y_test, y_test_F = Variable(X_test).float(), Variable(y_test), Variable(y_test_F).float()
-                # if(use_gpu):
-                #     X_test = X_test.to(device)
-                #     y_test = y_test.to(device)
-                #     y_test_F = y_test_F.to(device)
                 X_test, y_test = data
                 X_test, y_test = Variable(X_test).float(), Variable(y_test)
                 if(use_gpu):
@@ -138,11 +106,7 @@ class Train():
                 loss = self.costCross(outputs["pred_logits"].double(), y_test.double())
 
                 running_loss += loss.data.item()
-                # _,pred = torch.max(outputs["pred_logits"].data, 1)
-                # ans1 =  [ 1 if y_test[index] == pred[index] else 0 for index in range(pred.size()[0])]
-                # running_test_loss += loss.data.item()
-                #ans =  [ 1 if y_test_flatten[index] == pred_flatten[index] else 0 for index in range(pred_flatten.size()[0])]
-                # testing_correct += np.sum(ans1)  / len(ans1)
+
                 test_index += 1
                 epoch_loss = running_loss/test_index
                 print("running_loss: {}  " .format(running_loss))
@@ -150,71 +114,50 @@ class Train():
 
 
 
-    def train(self, n_epochs, data_loader_train):
+    def train(self, data_loader_train):
         self.model.train()
-        self.model.cuda(0)
+        self.model.to(device)
         best_acc = 0
 
         running_correct = 0
         # print(data_loader_train[0])
         train_index = 0
-        for i in range(n_epochs):
-            print("开始第{}轮训练 GPU：{} ".format(i,use_gpu))
-            print(len(data_loader_train))
-            for data in data_loader_train:
-                running_loss = 0.0
-                # print("数据为{}".format(data))
-                X_train, y_train  = data
-                # print("x: {} y :{}".format(X_train.shape,y_train.shape))
-                X_train, y_train = Variable(X_train).float(), Variable(y_train)
-                # X_train, y_train , X_train_F, _, _ = data
-                # X_train, y_train, X_train_F = Variable(X_train).float(), Variable(y_train), Variable(X_train_F).float()
-                if(use_gpu):
-                    X_train = X_train.to(device)
-                    y_train = y_train.to(device)
-                    #X_train_F = X_train_F.to(device)
 
-                #X_train = self.crop_tensor(X_train,3)
-                self.optimizer.zero_grad()
-                # print("运行到这里 {}".format(X_train.size()))
-                outputs  = self.model(X_train)
-                # print(outputs.shape)
-                # print("OUTPUT")
-                # print(outputs)
-                # print(outputs["pred_logits"].shape)
-                # print(y_train.shape)
-                lossClass = self.costCross(outputs["pred_logits"][:,:,0].double(), y_train[:,:,0].double())
-                lossCoord = self.costLTwo(outputs["pred_logits"][:,:,1:].double(), y_train[:,:,1:].double())
-                loss = lossClass + lossCoord
-                loss.backward()
-                self.optimizer.step()
+        for data in data_loader_train:
+            running_loss = 0.0
+            # print("数据为{}".format(data))
+            X_train, y_train  = data
+            # print("x: {} y :{}".format(X_train.shape,y_train.shape))
+            X_train, y_train = Variable(X_train).float(), Variable(y_train)
+            # X_train, y_train , X_train_F, _, _ = data
+            # X_train, y_train, X_train_F = Variable(X_train).float(), Variable(y_train), Variable(X_train_F).float()
+            if(use_gpu):
+                X_train = X_train.to(device)
+                y_train = y_train.to(device)
+                #X_train_F = X_train_F.to(device)
 
-                running_loss += loss.data.item()
+            #X_train = self.crop_tensor(X_train,3)
+            self.optimizer.zero_grad()
+            # print("运行到这里 {}".format(X_train.size()))
+            outputs  = self.model(X_train)
 
-                # _,pred = torch.max(outputs["pred_logits"].data, 1)
-                # print("pred {}".format(pred))
-                # ans1 =  [ 1 if y_train[index] == pred[index] else 0 for index in range(pred.size()[0])]
+            print("shape is {}".format(outputs["pred_logits"].shape))
+            print("output0  {} y_train0  {}".format(outputs["pred_logits"][:,:,0].shape,y_train[:,:,0].double().shape))
+            lossClass = self.costCross(outputs["pred_logits"][:,:,0].double(), y_train[:,:,0].double())
 
-                # running_correct += np.sum(ans1) / len(ans1)
-                train_index += 1
-                # print("ans {}" .format(ans1))
-                print("train_index {} running_loss {}" .format(train_index,running_loss))
+            print("output {} y_train {}".format(outputs["pred_logits"][:,:,1:].shape,y_train[:,:,1:].double().shape))
+            lossCoord = self.costL2(outputs["pred_logits"][:,:,1:].double(), y_train[:,:,1:].double())
+            loss = lossClass + lossCoord
+            loss.backward()
+            self.optimizer.step()
+
+            running_loss += loss.data.item()
+
+            train_index += 1
+            # print("ans {}" .format(ans1))
+            print("train_index {} running_loss {}" .format(train_index,running_loss))
 
         self.save_parameter("./save_best/", "best")
-
-
-
-        # if epoch_test_acc > best_acc:
-        #     best_acc = epoch_test_acc
-        #     es = 0
-        #     self.save_parameter("./save_best/", "best")
-        # else:
-        #     es += 1
-        #     print("Counter {} of 10".format(es))
-        #
-        #     if es > 5:
-        #         print("Early stopping with best_acc: ", best_acc, "and val_acc for this epoch: ", epoch_test_acc, "...")
-        #         break
 
 
     def predict(self, image):
@@ -274,7 +217,6 @@ class Train():
         torch.save(obj=self.model.state_dict(), f=file_path)
     def load_parameter(self, file_path = './save/' ):
         self.model.load_state_dict(torch.load(file_path))
-        # self.model.load_state_dict(torch.load('model_parameter.pkl'))
 
 
 if __name__ == "__main__":
@@ -287,8 +229,6 @@ if __name__ == "__main__":
 
     train_size = int(len(All_dataloader.photo_set) * 0.8)
     validate_size = len(All_dataloader.photo_set) - train_size
-
-
 
     train_dataset, validate_dataset = torch.utils.data.random_split(All_dataloader
                                                                     , [train_size, validate_size])
@@ -309,11 +249,11 @@ if __name__ == "__main__":
     )
 
 
-    trainer = Train(3,25,image_size,False)
+    trainer = Train(3,4,image_size,False)
 
     # trainer =  Train(3,25,image_size,False)
     # print(len(train_loader), len(test_loader))
     print("开始训练")
-    trainer.train(100, train_loader)
+    # trainer.train(train_loader)
     # trainer.train_and_test(100, train_loader, validate_loader)
-    # trainer.test(validate_loader)
+    trainer.test(validate_loader)
