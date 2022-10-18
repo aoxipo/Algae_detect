@@ -1,18 +1,6 @@
 import torch
 from torch import nn
-
-
-# #__all__ = ['densenet121']
-# model_urls = {
-#     'densenet121': 'https://download.pytorch.org/models/densenet121-a639ec97.pth',
-#     'densenet169': 'https://download.pytorch.org/models/densenet169-b2777c0a.pth',
-#     'densenet201': 'https://download.pytorch.org/models/densenet201-c1103571.pth',
-#     'densenet161': 'https://download.pytorch.org/models/densenet161-8d451a50.pth',
-# }
-
-
-
-
+import torch.nn.functional as F
 def conv_block(in_channel, out_channel):
     layer = nn.Sequential(
         nn.BatchNorm2d(in_channel),
@@ -102,14 +90,51 @@ class densenet(nn.Module):
         block = []
         block.append(transition(channels, channels // 2))
         return nn.Sequential(*block)
+
+class MLP(nn.Module):
+    """ Very simple multi-layer perceptron (also called FFN)"""
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
+        super().__init__()
+        self.num_layers = num_layers
+        h = [hidden_dim] * (num_layers - 1)
+        self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+    def forward(self, x):
+        for i, layer in enumerate(self.layers):
+            x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
+        x = x.view(x.shape[0], -1, 4)
+        return x
+    
+class ShareMLP(MLP):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
+        super(ShareMLP, self).__init__(input_dim, hidden_dim, output_dim, num_layers)
+        self.num_layers = num_layers
+        h = [hidden_dim] * (num_layers - 1)
+        self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+    def forward(self, x):
+        for i, layer in enumerate(self.layers):
+            x_src = x
+            x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
+            if i < self.num_layers - 1:
+                x = x + x_src
+        x = x.view(x.shape[0], -1, 4)
+        return x
+    
 class DenseCoord(densenet):
-    def __init__(self, in_channel, num_classes,growth_rate = 32, block_layers=[6, 12, 24, 16], need_return_dic = True):
+    def __init__(self, in_channel, num_classes, num_queries = 25,growth_rate = 32, block_layers=[6, 12, 24, 16], need_return_dic = True):
 
         super(DenseCoord,self).__init__(in_channel, num_classes, growth_rate=growth_rate, block_layers=block_layers,
                                         need_return_dic = need_return_dic)
-        self.REshape = torch.nn.Linear(1024, num_classes * 5)
-        # self.reshape = #
-    def forward(self, x):
+        self.num_classes = num_classes
+        self.class_embed = nn.Linear(1024, num_classes * num_queries)
+        self.bbox_embed = MLP(1024, 1024, 4 * num_queries, 3)
+        #self.bbox_embed = ShareMLP(1024, 1024, 4 * num_queries, 3)
+        
+    def build_results(self,x,y):
+        return {
+            "pred_logits":x,
+            "pred_boxes":y,
+        }
+    def feature(self, x):
         x = self.block1(x)
         x = self.DB1(x)
         x = self.TL1(x)
@@ -119,179 +144,23 @@ class DenseCoord(densenet):
         x = self.TL3(x)
         x = self.DB4(x)
         x = self.global_average(x)
-        print(x.shape)
         x = x.view(x.shape[0], -1)
-        print(x.shape)
-        x = self.REshape(x)
-        x = x.view(x.shape[0],-1,5)
-        print(x.shape)
+        return x
+    def forward(self, x):
+        feature_map = self.feature(x)
+        print(feature_map.shape)
+        class_feature = self.class_embed(feature_map)
+        outputs_class = class_feature.view(class_feature.shape[0], -1, self.num_classes)    # one-hot
+        outputs_coord = self.bbox_embed(feature_map).sigmoid()
+        print(outputs_class.shape)
+        print(outputs_coord.shape)
+        return self.build_results(outputs_class, outputs_coord) if (self.need_return_dict) else [outputs_class,outputs_coord]
 
-        # print(x.size())
-        # a = self.ea(x)
-        # print(a.size())
-        # x =  nn.Linear(1024,6)
-        # x = self.classifier(x)
-        # print(x.__sizeof__())
-        # [batch_size, class number:int 100, coord:[list] 5 ]
-        # print(x.size())
-        return self.build_results(x) if (self.need_return_dict) else x
-'''
-def densenet121(pretrained=False, **kwargs):
 
-    #model = dense_block(Bottle2neck, [3, 4, 6, 3], baseWidth=26, scale=4, **kwargs)?
-    if pretrained:      
 
-        model_state = torch.load('/home/htu/manqi/PRA/PraNet-master/densenet121-a639ec97.pth',map_location='cpu')
-        model.load_state_dict(model_state)
-'''     
-'''
 if __name__ == '__main__':
-    images = torch.rand(1, 3, 224, 224).cuda(0)
-    model = densenet121(pretrained=True)
-    model = model.cuda(0)
-    print(model(images).size())
-'''
-
-# net = densenet(3,10)
-# x = torch.rand(1,3,224,224)
-# for name,layer in net.named_children():
-#     if name != "classifier":
-#         x = layer(x)
-#         print(name, 'output shape:', x.shape)
-#     else:
-#         x = x.view(x.size(0), -1)
-#         x = layer(x)
-#         print(name, 'output shape:', x.shape)
-
-class crop_model_cat(nn.Module):
-    def __init__(self, in_channel, num_classes) -> None:
-        super().__init__()
-        middle_layer_number = 9*2*10
-        self.flatten = torch.nn.Flatten()
-        self.line = torch.nn.Linear(middle_layer_number, 2)
-        self.model = densenet(1, num_classes*32, need_return_dic = False)
-
-        # self.attention = torch.nn.Sequential(
-        #     torch.nn.Linear(middle_layer_number,num_classes),
-        #     torch.nn.ReLU(),
-        # )
-        # self.BN = torch.nn.Sequential(
-        #     torch.nn.BatchNorm1d(middle_layer_number)
-        # )
-        # self.dense = torch.nn.Sequential( 
-        #     torch.nn.Linear(middle_layer_number,64),
-        #     torch.nn.ReLU(),
-        # )
-        # self.dense2 = torch.nn.Sequential( 
-        #     torch.nn.Linear(64,32),
-        #     torch.nn.ReLU(),
-        # )
-        # self.dense3 = torch.nn.Sequential( 
-        #     torch.nn.Linear(32, num_classes),
-        #     torch.nn.ReLU(),
-        # )
-
-   
-    # def feature(self, x):
-    #     x = self.Flatten(x)
-    #     x = self.BN(x)
-    #     p = self.attention(x)
-    #     x = self.dense(x)
-        
-    #     x = self.dense2(x)
-        
-    #     x = self.dense3(x)
-        
-    #     x =  torch.mul(x,p)
-    #     return x
-
-    def build_ans(self,x):
-        return {
-            "pred_logits":x,
-        }
-
-    def revert_tensor(self,image_pack, batch):
-        ans = []
-        for i in range(batch):
-            ans.append(image_pack[i::batch,:])
-        return torch.stack(ans)
-
-    def forward(self, input):
-        # try:
-        #     p, c, _, _ = input[0].size()
-        # except Exception as e:
-        #     print(e)
-        #     print(len(input), input[0].size())
-        #print(input.size())
-        p, c, _, _ = input.size()
-        input = self.crop_tensor(input,3)
-        #print(input.size())
-        a = self.model(input)
-        
-        #print(a.size())
-        # revert
-        
-        a = self.revert_tensor(a, p)
-        print(a.size())
-        a = self.flatten(a)
-        #a = self.feature(a)
-
-        #return self.build_ans(a)
-        # #print(a.size()," flatten \n")
-        # #print(a.size())
-        ans_ = self.line(a)
-        #print(ans_.size())
-        return self.build_ans(ans_)
-
-    def crop_tensor(self, image_pack, scale = 4):
-        _, _, w, h = image_pack.size()
-        a = int(w/scale)
-        b = int(h/scale)
-        t = torch.split(image_pack, a, dim = 2)
-        ans = []
-        for i in t:
-            for j in torch.split(i,b, dim=3):
-                ans.append(j)
-        d = torch.cat(ans,0)
-        return d
-
-class crop_model(nn.Module):
-    def __init__(self, in_channel, num_classes) -> None:
-        super().__init__()
-        self.flatten = torch.nn.Flatten()
-        self.line = torch.nn.Linear(90, 2)
-        self.model = densenet(in_channel, 10, need_return_dic = False)
-       
-
-    def build_ans(self,x):
-        return {
-            "pred_logits":x,
-        }
-
-    def forward(self, input):
-        try:
-            p, c, _, _ = input[0].size()
-        except Exception as e:
-            print(e)
-            print(len(input), input[0].size())
-        # ans_ = torch.zeros(p,1)
-        # if(use_gpu):
-        #     ans_ = ans_.to(device)
-        ans_ = []
-        for i in input:
-            ans = self.model(i)
-            ans_.append(ans)
-            # ans_ = torch.mul( ans_ ,ans)
-        a = torch.stack( ans_, 1)
-
-        #print(a.size())
-        a = self.flatten(a)
-        #print(a.size())
-        ans_ = self.line(a)
-        #print(ans_.size())
-        return self.build_ans(ans_)
-if __name__ == '__main__':
-    new_model = DenseCoord(in_channel=3, num_classes=8)
-
-    images = torch.rand(100, 3, 128, 128)
-    new_model(images)
+    model = DenseCoord(3, 8, num_queries = 25)
+    image = torch.zeros((2,3,128,128))
+    d = model(image)
+    print(d['pred_boxes'].shape, d['pred_logits'].shape)
+    # torch.Size([2, 25, 4]), torch.Size([2, 25, 8])
