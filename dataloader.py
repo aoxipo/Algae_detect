@@ -15,7 +15,7 @@ import glob
 
 
 class Dataload(Dataset):
-    def __init__(self, file_path, batch_size = 1, data_source = None, gray = False, image_shape = (128,128)
+    def __init__(self, file_path, batch_size = 1, data_source = None, gray = False, image_shape = (224,224)
                  , same_matrix = True, num_require = 25,data_type = 'train'):
         self.file_path = file_path
         self.data_source = data_source

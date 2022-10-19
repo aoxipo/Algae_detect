@@ -9,8 +9,8 @@ def plot_rect(image, label):
         width,height,channel = image.shape
     else:
         width,height = image.shape
-    
-    if(label is dict):
+
+    if isinstance(label,dict):
         tag = label['pred_logits']
         tag = torch.argmax(tag.view(-1, 9),1)
         label = label['pred_boxes']
@@ -25,22 +25,22 @@ def plot_rect(image, label):
         else:
             x,y,w,h = coord
             class_number = tag[index]
-
-        centerx = width*(x - w/2)
-        centery = height*(y - h/2)
-        W = w * width
-        H = h * height
-        plt.gca().add_patch(
-            plt.Rectangle(
-                xy=(centerx,centery),
-                width=W, 
-                height=H,
-                edgecolor='red',
-                fill=False, linewidth=1
+        if (class_number != 8):
+            centerx = width*(x - w/2)
+            centery = height*(y - h/2)
+            W = w * width
+            H = h * height
+            plt.gca().add_patch(
+                plt.Rectangle(
+                    xy=(centerx,centery),
+                    width=W,
+                    height=H,
+                    edgecolor='red',
+                    fill=False, linewidth=1
+                )
             )
-        )
         plt.text(centerx, centery, '{}'.format(int(class_number)), ha='center', va='center')
-    return 
+    return
 
 def plot_rect_old(image, label):
     plt.figure(figsize=(8,8))
