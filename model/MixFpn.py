@@ -209,4 +209,11 @@ class MixFpn(nn.Module):
         x = x.view(x.shape[0], -1)
         x = self.softmax(x)
         pred_class = self.class_embed(x)
+        pred_class = pred_class.view(pred_class.shape[0], -1,9)
         return self.build_results(pred_class, pred_coord) if (self.need_return_dict) else [pred_class, pred_coord]
+
+if __name__ == '__main__':
+    model = MixFpn(in_channel=3, num_classes=8, num_queries = 25)
+    image = torch.zeros((2, 3, 128, 128))
+    d = model(image)
+    print(d['pred_boxes'].shape, d['pred_logits'].shape)
