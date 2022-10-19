@@ -136,7 +136,7 @@ class BoxEmbed(nn.Module):
         
     
 class MixFpn(nn.Module):
-    def __init__(self,in_channel = 3, layers = [2,2,2,2], num_class = 2, num_require = 25, need_return_dict = True):
+    def __init__(self,in_channel = 3, layers = [2,2,2,2], num_classes = 2, num_require = 25, need_return_dict = True):
         super(MixFpn,self).__init__()
         self.fpn = FPN(in_channel, layers)
         self.conv1 = nn.Sequential(
@@ -155,8 +155,8 @@ class MixFpn(nn.Module):
         )
         self.num_require = num_require
         self.need_return_dict = need_return_dict
-        self.softmax = nn.Linear(1024, num_require * (num_class + 1) * 2)
-        self.class_embed = nn.Linear(num_require * (num_class + 1) * 2, num_require * (num_class + 1))
+        self.softmax = nn.Linear(1024, num_require * (num_classes + 1) * 2)
+        self.class_embed = nn.Linear(num_require * (num_classes + 1) * 2, num_require * (num_classes + 1))
         self.box_embed1 = BoxEmbed(self.hidden*2, 32, num_require=num_require)
         self.box_embed2 = BoxEmbed(self.hidden*2, 16, num_require=num_require)
         self.box_embed3 = BoxEmbed(self.hidden*2, 8, num_require=num_require)

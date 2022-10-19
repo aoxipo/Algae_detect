@@ -20,10 +20,12 @@ else:
     device = torch.device("cpu")
 print("use gpu:", use_gpu)
 class Train():
-    def __init__(self, in_channles, out_channels, image_size = 128,is_show = True):
+    def __init__(self, in_channles, out_channels, image_size = 128, method_type = 0, name = 'dense',is_show = True):
         self.in_channels = in_channles
         self.out_channels = out_channels
         self.image_size = image_size
+        self.name = name
+        self.method_type = method_type
         self.lr = 0.0001
         self.history_acc = []
         self.history_loss = []
@@ -33,9 +35,17 @@ class Train():
     
     def create(self, is_show):
 
-        from model.DesNet import DenseCoord as Model
-        self.model = Model(in_channel=self.in_channels, num_classes=self.out_channels, num_queries = 25)
-        self.name = "dense121"
+        if(self.method_type == 0):
+            from model.DesNet import DenseCoord as Model
+            self.model = Model(in_channel=self.in_channels, num_classes=self.out_channels, num_queries = 25)
+            print("build dense model")
+        elif(self.method_type == 1):
+            from model.MixFpn import MixFpn as Model
+            # layers = [2,2,2,2], num_class = 2, num_require = 25
+            self.model = Model(in_channel=self.in_channels, layers = [2,2,2,2], num_classes=self.out_channels, num_queries = 25)
+            print("build miffpn model")
+        else:
+            raise NotImplementedError
 
         self.costCross = torch.nn.CrossEntropyLoss()
         self.costL2= torch.nn.SmoothL1Loss()
@@ -271,6 +281,7 @@ def perdit():
     print(res)
 
 if __name__ == "__main__":
+    
     batch_size = 128
     image_size = 128
     data_path = r"E:\Dataset\training_set\train"
@@ -298,5 +309,15 @@ if __name__ == "__main__":
         drop_last=True,
     )
 
-    trainer = Train(3, 8, image_size, False)
-    trainer.train_and_test(20,train_loader,validate_loader)
+    method_dict ={
+        0:"densecoord",
+        1:"mixfpn",
+    }
+
+    trainer = Train(
+        3, 8, image_size, 
+        name = "mixfpn",
+        method_type = 1,
+        is_show = False
+        )
+    trainer.train_and_test(20, train_loader, validate_loader)
