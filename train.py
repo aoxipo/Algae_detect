@@ -84,7 +84,7 @@ class Train():
                 es += 1
                 print("Counter {} of 10".format(es))
 
-                if es > 9:
+                if es > 3:
                     print("Early stopping with best_acc: ", best_acc, "and val_acc for this epoch: ", epoch_test_acc, "...")
                     break
         self.save_history()
